@@ -54,14 +54,14 @@ pub fn KWiseIndependentHash(comptime KeyType: type) type {
         }
 
         /// Converts the unsigned integer key (KeyType) into a u64 value.
-        inline fn keyToU64(self: Self, item: KeyType) u64 {
+        inline fn keyToU64(self: *Self, item: KeyType) u64 {
             _ = self; // Avoid unused parameter warning
             // Safely cast any unsigned integer type to u64
             return @intCast(item);
         }
 
         /// Fast moudulo operations for 2^61 - 1
-        fn mod61(self: Self, hi: u64, lo: u64) u64 {
+        fn mod61(self: *Self, hi: u64, lo: u64) u64 {
             _ = self; // Avoid unused parameter warning
             const lo61: u64 = lo & MP61;
             const hi_part: u64 = (lo >> 61) + (hi << 3) + (hi >> 58);
@@ -71,19 +71,18 @@ pub fn KWiseIndependentHash(comptime KeyType: type) type {
         }
 
         /// Fast multiplication modulo 2^61 - 1
-        fn mul61(self: Self, a: u64, b: u64) u64 {
-            _ = self; // Avoid unused parameter warning
+        fn mul61(self: *Self, a: u64, b: u64) u64 {
             const a_cast: u128 = @intCast(a);
             const b_cast: u128 = @intCast(b);
             const product: u128 = a_cast * b_cast;
             const hi: u64 = @intCast(product >> 64);
             const lo: u64 = @truncate(product);
-            return mod61(hi, lo);
+            return self.mod61(hi, lo);
         }
 
-        /// Computes the i-th hash value (0 <= index < k) for the given item.
+        /// Computes the hash value for the given item.
         /// Returns the full 64-bit hash result.
-        pub fn hash(self: Self, item: KeyType) u64 {
+        pub fn hash(self: *Self, item: KeyType) u64 {
             var res: u64 = 0;
             // Horners method for polynomial evaluation
             var i: usize = self.coefficients.len - 1;
@@ -117,4 +116,18 @@ test "KWiseIndependentHash (uint) init/deinit" {
     try std.testing.expectEqual(@as(usize, 10), hasher2.coefficients.len);
 
     try std.testing.expectError(error.InvalidArgument, HasherU64.init(allocator, 0, 0));
+}
+
+test "KWiseIndependentHash (uint) mul61" {
+    const a: u64 = (1 << 63);
+    const b: u64 = (1 << 10) + 20;
+
+    const HasherU64 = KWiseIndependentHash(u64);
+    var hasher = try HasherU64.init(std.testing.allocator, 5, 0);
+    defer hasher.deinit();
+
+    try std.testing.expectEqual(a + b, 9223372036854776852);
+    try std.testing.expectEqual(hasher.mul61(a, b), 4176);
+    try std.testing.expectEqual(hasher.mul61(b, a), 4176);
+    try std.testing.expectEqual(hasher.mul61(20, 10), 200);
 }
