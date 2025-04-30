@@ -2,16 +2,16 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 
-/// Provides a k-wise independent hash function based on multiplication-shift
+/// Provides a k-wise independent hash function based on Carter-Wegman hashing
 /// for unsigned integer keys.
 /// The hash function maps the input key to an integer in the range [0, 2^61).
 ///
 /// Parameters:
 /// - KeyType: The type of the keys (must be an unsigned integer type).
-pub fn KWiseIndependentHash(comptime KeyType: type) type {
+pub fn KWiseHash(comptime KeyType: type) type {
     // --- Compile-time checks ---
     if (@typeInfo(KeyType).int.signedness != .unsigned) {
-        @compileError("Unsupported KeyType for KWiseIndependentHash. KeyType must be an unsigned integer.");
+        @compileError("Unsupported KeyType for KWiseHash. KeyType must be an unsigned integer.");
     }
 
     return struct {
@@ -19,13 +19,13 @@ pub fn KWiseIndependentHash(comptime KeyType: type) type {
         const mp_61: u64 = (1 << 61) - 1; // 2^61 - 1 (Large Mersenne prime)
 
         k: usize,
-        coefficients: []u64, // k random odd multipliers
+        coefficients: []u64, // k random coefficients in [0, 2^61-1)
         allocator: Allocator,
 
         /// Initializes the hasher with k independent hash functions.
         pub fn init(allocator: Allocator, k: usize, seed: u64) !Self {
             if (k == 0) {
-                const fmt = "KWiseIndependentHash requires k > 0.";
+                const fmt = "KWiseHash requires k > 0.";
                 if (!builtin.is_test) {
                     std.log.err(fmt, .{});
                 } else {
@@ -91,12 +91,13 @@ pub fn KWiseIndependentHash(comptime KeyType: type) type {
         pub fn hash(self: *Self, item: KeyType) u64 {
             var res: u64 = 0;
             // Horners method for polynomial evaluation
-            var i: usize = self.coefficients.len - 1;
-            while (i >= 0) : (i -= 1) {
+            var i: usize = self.coefficients.len;
+            while (i > 0) {
+                i -= 1;
                 const coeff: u64 = self.coefficients[i];
                 const key: u64 = self.keyToU64(item);
 
-                res = mul61(res, key) + coeff;
+                res = self.mul61(res, key) + coeff;
                 res = if (res >= mp_61) res - mp_61 else res;
             }
             return res;
@@ -106,10 +107,10 @@ pub fn KWiseIndependentHash(comptime KeyType: type) type {
 
 // // ----------- TESTS for KIndependentHasher (Unsigned Ints Only) -----------
 
-test "KWiseIndependentHash (uint) init/deinit" {
-    const allocator = std.testing.allocator;
-    const HasherU64 = KWiseIndependentHash(u64);
-    const HasherU32 = KWiseIndependentHash(u32);
+test "KWiseHash (uint) init/deinit" {
+    const allocator: Allocator = std.testing.allocator;
+    const HasherU64 = KWiseHash(u64);
+    const HasherU32 = KWiseHash(u32);
     const seed: u64 = std.testing.random_seed;
 
     var hasher1 = try HasherU64.init(allocator, 5, seed);
@@ -125,11 +126,11 @@ test "KWiseIndependentHash (uint) init/deinit" {
     try std.testing.expectError(error.InvalidArgument, HasherU64.init(allocator, 0, 0));
 }
 
-test "KWiseIndependentHash (uint) mul61" {
+test "KWiseHash (uint) mul61" {
     const a: u64 = (1 << 63);
     const b: u64 = (1 << 10) + 20;
 
-    const HasherU64 = KWiseIndependentHash(u64);
+    const HasherU64 = KWiseHash(u64);
     const seed: u64 = std.testing.random_seed;
     var hasher = try HasherU64.init(std.testing.allocator, 5, seed);
     defer hasher.deinit();
