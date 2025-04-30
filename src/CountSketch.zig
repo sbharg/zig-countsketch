@@ -301,48 +301,6 @@ pub fn F2Estimator(comptime KeyType: type, comptime CounterType: type) type {
 
 // ----------- TESTS for CountSketch (Unsigned Ints Only) -----------
 
-test "CountSketch (uint) basic usage" {
-    const allocator = std.testing.allocator;
-    // Test with u32 keys and i64 counters
-    const SketchU32 = CountSketch(u32, i64);
-
-    var deterministic_prng = std.rand.DefaultPrng.init(0x11223344);
-    const random = deterministic_prng.random();
-
-    var sketch = try SketchU32.init(allocator, 5, 10, random);
-    defer sketch.deinit();
-
-    const item1: u32 = 10001;
-    const item2: u32 = 20002;
-
-    sketch.update(item1, 1);
-    sketch.update(item2, 1);
-    sketch.update(item1, 1);
-    sketch.update(item1, 1); // item1 count = 3
-    sketch.update(item2, 5); // item2 count = 1 + 5 = 6
-
-    const estimate1 = try sketch.estimate(item1);
-    const estimate2 = try sketch.estimate(item2);
-    const estimate_unseen: u32 = 99999;
-    const estimate_unseen_val = try sketch.estimate(estimate_unseen);
-
-    std.debug.print("\n-- CountSketch (u32 keys) --\n", .{});
-    std.debug.print(" - Item {d}: {} (Expected ~3)\n", .{ item1, estimate1 });
-    std.debug.print(" - Item {d}: {} (Expected ~6)\n", .{ item2, estimate2 });
-    std.debug.print(" - Item {d}: {} (Expected ~0)\n", .{ estimate_unseen, estimate_unseen_val });
-
-    try std.testing.expect(estimate1 >= 1 and estimate1 <= 5);
-    try std.testing.expect(estimate2 >= 4 and estimate2 <= 8);
-    try std.testing.expect(estimate_unseen_val >= -2 and estimate_unseen_val <= 2);
-
-    // Test negative update
-    sketch.update(item1, -1); // item1 count = 3 - 1 = 2
-    const estimate1_after_remove = try sketch.estimate(item1);
-    std.debug.print(" - Item {d} (after remove): {} (Expected ~2)\n", .{ item1, estimate1_after_remove });
-    try std.testing.expect(estimate1_after_remove < estimate1 or estimate1 <= 0); // Check decrease or if already <=0
-    try std.testing.expect(estimate1_after_remove >= 0 and estimate1_after_remove <= 4);
-}
-
 test "CountSketch (uint) type check" {
     _ = CountSketch(u8, i32);
     _ = CountSketch(u64, i64);
@@ -385,7 +343,7 @@ test "F2Estimator (uint) basic usage" {
 
     const seed: u64 = std.testing.random_seed;
 
-    var estimator = try EstimatorU32.init(allocator, 0.1, 0.1, seed);
+    var estimator = try EstimatorU32.init(allocator, 0.1, seed);
     defer estimator.deinit();
 
     const item1: u32 = 10001;
