@@ -4,27 +4,51 @@ const cs = @import("countsketch");
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
-    const w = 10;
-    const d = 5;
-
     const seed: u64 = @intCast(std.time.microTimestamp());
     var prng = std.Random.DefaultPrng.init(seed);
     const rand = prng.random();
-    // Initialize the CountSketch with the specified parameters
-    var sketch = cs.CountSketch(u32, i64).init(allocator, d, w, rand.int(u64)) catch unreachable;
-    defer sketch.deinit();
 
-    // Example usage of the CountSketch
+    // Example usage of CountSketch and L2Estimator
     var list = std.ArrayList(i64).init(allocator);
-    const len = 15;
-    for (0..len) |i| {
+    const len = 1000;
+    var actual_l2: i64 = 0;
+    for (0..len) |_| {
         try list.append(rand.intRangeAtMost(i64, -10, 10));
-        sketch.update(@as(u32, @intCast(i)), list.items[i]);
     }
+
+    const w = len / 4;
+    const d = 5;
+    const eps = 0.125;
+
+    // Initialize the CountSketch and L2Estimator with the specified parameters
+    var sketch = try cs.CountSketch(u32, i64).init(allocator, d, w, rand.int(u64));
+    var l2_estimator = try cs.L2Estimator(u32, i64).init(allocator, eps, rand.int(u64));
+    defer sketch.deinit();
+    defer l2_estimator.deinit();
+
+    for (list.items, 0..) |item, i| {
+        // Update the CountSketch with the item
+        sketch.update(@as(u32, @intCast(i)), item);
+        // Update the L2Estimator with the item
+        l2_estimator.update(@as(u32, @intCast(i)), item);
+        actual_l2 += item * item;
+    }
+
+    // Retrieve the estimated L2 squared norm
+    const l2_estimate = l2_estimator.estimate();
+    std.debug.print("L2 squared estimate: {} (Actual: {})\n", .{ l2_estimate, actual_l2 });
 
     // Retrieve the estimated count for the key
+    var avg_err: f64 = 0.0;
+    var max_err: u64 = 0.0;
     for (list.items, 0..) |freq, i| {
         const estimate = try sketch.estimate(@as(u32, @intCast(i)));
-        std.debug.print("Estimated count for key {}: {} (Actual: {})\n", .{ i, estimate, freq });
+        //std.debug.print("Estimated count for key {}: {} (Actual: {})\n", .{ i, estimate, freq });
+        const err = @abs(estimate - freq);
+        avg_err += @floatFromInt(err);
+        max_err = @max(max_err, err);
     }
+    avg_err /= len;
+    std.debug.print("CountSketch Average error: {}\n", .{avg_err});
+    std.debug.print("CountSketch Maximum error: {}\n", .{max_err});
 }

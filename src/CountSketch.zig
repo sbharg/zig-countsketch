@@ -219,7 +219,7 @@ pub fn CountSketch(comptime KeyType: type, comptime CounterType: type) type {
     };
 }
 
-/// L to estimate the l2 norm squared of a frequency vector undergoing
+/// L2Estimator to estimate the l2 norm squared of a frequency vector undergoing
 /// dynamic updates. Returns a (1 + eps)-approximation of the l2 norm squared with
 /// constant probability (at least 3/4)
 ///
@@ -243,7 +243,7 @@ pub fn L2Estimator(comptime KeyType: type, comptime CounterType: type) type {
         eps: f64,
         sketch: CSBase,
 
-        /// Initializes the L with specified depth (d) and width (w).
+        /// Initializes the L2Estimator with specified depth (d) and width (w).
         ///
         /// Parameters:
         /// - allocator: The allocator to use for memory allocation.
@@ -336,10 +336,10 @@ test "CountSketch (uint) basic estimates" {
     try std.testing.expect(true); // Passes if it compiles
 }
 
-test "L (uint) basic usage" {
+test "L2Estimator (uint) basic usage" {
     const allocator = std.testing.allocator;
     // Test with u32 keys and i64 counters
-    const EstimatorU32 = L(u32, i64);
+    const EstimatorU32 = L2Estimator(u32, i64);
 
     const seed: u64 = std.testing.random_seed;
 
@@ -357,7 +357,7 @@ test "L (uint) basic usage" {
 
     const estimate = estimator.estimate();
     const actual = 4 * 4 + 6 * 6; // l2 norm squared
-    std.debug.print("\n-- L (u32 keys, width: {}) --\n", .{estimator.w});
+    std.debug.print("\n-- L2Estimator (u32 keys, width: {}) --\n", .{estimator.w});
     std.debug.print(" - l2 norm squared estimate: {} (Actual {})\n", .{ estimate, actual });
 
     try std.testing.expect(true); // Passes if it compiles
