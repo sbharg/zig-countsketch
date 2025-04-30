@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const Random = std.Random;
 const KWiseHash = @import("k_wise_hash.zig").KWiseHash;
 
-/// CountSketchBase is a base data structure used for CountSketch and F2Estimator.
+/// CountSketchBase is a base data structure used for CountSketch and L.
 ///
 /// Parameters:
 /// - KeyType: The type of the keys (must be an unsigned integer e.g. u32, u64).
@@ -219,17 +219,17 @@ pub fn CountSketch(comptime KeyType: type, comptime CounterType: type) type {
     };
 }
 
-/// F2Estimator to estimate the l2 norm squared of a frequency vector undergoing
+/// L to estimate the l2 norm squared of a frequency vector undergoing
 /// dynamic updates. Returns a (1 + eps)-approximation of the l2 norm squared with
 /// constant probability (at least 3/4)
 ///
 /// Parameters:
 /// - KeyType: The type of the keys (must be an unsigned integer).
 /// - CounterType: The type for the counters (e.g., i32, i64). Must be signed.
-pub fn F2Estimator(comptime KeyType: type, comptime CounterType: type) type {
+pub fn L2Estimator(comptime KeyType: type, comptime CounterType: type) type {
     // --- Compile-time checks ---
     if (@typeInfo(KeyType).int.signedness != .unsigned) {
-        @compileError("Unsupported KeyType for F2Estimator. KeyType must be an unsigned integer.");
+        @compileError("Unsupported KeyType for L. KeyType must be an unsigned integer.");
     }
     if (@typeInfo(CounterType).int.signedness != .signed) {
         @compileError("CounterType must be signed (e.g., i32, i64)");
@@ -243,7 +243,7 @@ pub fn F2Estimator(comptime KeyType: type, comptime CounterType: type) type {
         eps: f64,
         sketch: CSBase,
 
-        /// Initializes the F2Estimator with specified depth (d) and width (w).
+        /// Initializes the L with specified depth (d) and width (w).
         ///
         /// Parameters:
         /// - allocator: The allocator to use for memory allocation.
@@ -251,7 +251,7 @@ pub fn F2Estimator(comptime KeyType: type, comptime CounterType: type) type {
         /// - seed: The seed for the random number generator.
         pub fn init(allocator: Allocator, eps: f64, seed: u64) !Self {
             if (eps <= 0 or eps >= 1) {
-                const fmt = "F2Estimator eps (w) must be in range (0, 1)";
+                const fmt = "L eps (w) must be in range (0, 1)";
                 if (!builtin.is_test) {
                     std.log.err(fmt, .{});
                 } else {
@@ -336,10 +336,10 @@ test "CountSketch (uint) basic estimates" {
     try std.testing.expect(true); // Passes if it compiles
 }
 
-test "F2Estimator (uint) basic usage" {
+test "L (uint) basic usage" {
     const allocator = std.testing.allocator;
     // Test with u32 keys and i64 counters
-    const EstimatorU32 = F2Estimator(u32, i64);
+    const EstimatorU32 = L(u32, i64);
 
     const seed: u64 = std.testing.random_seed;
 
@@ -357,7 +357,7 @@ test "F2Estimator (uint) basic usage" {
 
     const estimate = estimator.estimate();
     const actual = 4 * 4 + 6 * 6; // l2 norm squared
-    std.debug.print("\n-- F2Estimator (u32 keys, width: {}) --\n", .{estimator.w});
+    std.debug.print("\n-- L (u32 keys, width: {}) --\n", .{estimator.w});
     std.debug.print(" - l2 norm squared estimate: {} (Actual {})\n", .{ estimate, actual });
 
     try std.testing.expect(true); // Passes if it compiles

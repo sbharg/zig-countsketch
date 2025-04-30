@@ -5,7 +5,7 @@ const std = @import("std");
 
 pub const KWiseHash = @import("k_wise_hash.zig").KWiseHash;
 pub const CountSketch = @import("CountSketch.zig").CountSketch;
-pub const F2Estimator = @import("CountSketch.zig").F2Estimator;
+pub const L2Estimator = @import("CountSketch.zig").F2Estimator;
 
 comptime {
     std.testing.refAllDecls(@This());
