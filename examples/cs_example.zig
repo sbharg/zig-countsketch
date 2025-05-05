@@ -10,13 +10,13 @@ pub fn main() !void {
 
     // Example usage of CountSketch and L2Estimator
     var list = std.ArrayList(i64).init(allocator);
-    const len = 1000;
+    const len = 1_000_000;
     var actual_l2: i64 = 0;
     for (0..len) |_| {
         try list.append(rand.intRangeAtMost(i64, -10, 10));
     }
 
-    const w = len / 4;
+    const w = 1 << 13;
     const d = 5;
     const eps = 0.125;
 
@@ -37,6 +37,9 @@ pub fn main() !void {
     // Retrieve the estimated L2 squared norm
     const l2_estimate = l2_estimator.estimate();
     std.debug.print("L2 squared estimate: {} (Actual: {})\n", .{ l2_estimate, actual_l2 });
+    const approx_factor: f64 = @as(f64, @floatFromInt(l2_estimate)) / @as(f64, @floatFromInt(actual_l2));
+    //l2_rel_error = @abs(l2_rel_error - @as(f64, actual_l2)) / @as(f64, actual_l2);
+    std.debug.print("Approximation Factor: {e}\n", .{approx_factor});
 
     // Retrieve the estimated count for the key
     var avg_err: f64 = 0.0;
