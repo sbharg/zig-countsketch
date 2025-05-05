@@ -4,8 +4,8 @@
 const std = @import("std");
 
 pub const KWiseHash = @import("k_wise_hash.zig").KWiseHash;
-pub const CountSketch = @import("CountSketch.zig").CountSketch;
-pub const L2Estimator = @import("CountSketch.zig").L2Estimator;
+pub const CountSketch = @import("count_sketch.zig").CountSketch;
+pub const L2Estimator = @import("count_sketch.zig").L2Estimator;
 
 comptime {
     std.testing.refAllDecls(@This());

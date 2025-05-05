@@ -7,13 +7,13 @@ const KWiseHash = @import("k_wise_hash.zig").KWiseHash;
 /// CountSketchBase is a base data structure used for CountSketch and L.
 ///
 /// Parameters:
-/// - KeyType: The type of the keys (must be an unsigned integer e.g. u32, u64).
+/// - KeyType: The type of the keys (must be an unsigned integer with width less than 32).
 /// - CounterType: The type for the counters (e.g., i32, i64). Must be signed.
 /// - sign_hash_base_ind: The independence of the hash function used for determining signs (+1/-1).
 pub fn CountSketchBase(comptime KeyType: type, comptime CounterType: type, comptime sign_hash_base_ind: comptime_int) type {
     // --- Compile-time checks ---
-    if (@typeInfo(KeyType).int.signedness != .unsigned) {
-        @compileError("Unsupported KeyType for CountSketch. KeyType must be an unsigned integer.");
+    if (@typeInfo(KeyType).int.signedness != .unsigned or @typeInfo(KeyType).int.bits > 32) {
+        @compileError("Unsupported KeyType for KWiseHash. KeyType must be u32 or less.");
     }
     if (@typeInfo(CounterType).int.signedness != .signed) {
         @compileError("CounterType must be signed (e.g., i32, i64)");
@@ -21,14 +21,14 @@ pub fn CountSketchBase(comptime KeyType: type, comptime CounterType: type, compt
 
     return struct {
         const Self: type = @This();
-        const Hasher: type = KWiseHash(KeyType);
+        const HashFn: type = KWiseHash(KeyType);
 
         /// The width of the CountSketch vector.
         w: usize,
         allocator: Allocator,
         counters: []CounterType,
-        index_hash_base: Hasher,
-        sign_hash_base: Hasher,
+        index_hash_base: HashFn,
+        sign_hash_base: HashFn,
 
         /// Initializes the CountSketchBase with specified width (w).
         ///
@@ -61,9 +61,9 @@ pub fn CountSketchBase(comptime KeyType: type, comptime CounterType: type, compt
 
             var prng = std.Random.DefaultPrng.init(seed);
             const rand = prng.random();
-            self.index_hash_base = try Hasher.init(allocator, 2, rand.int(u64));
+            self.index_hash_base = try HashFn.init(allocator, 2, rand.int(u64));
             errdefer self.index_hash_base.deinit();
-            self.sign_hash_base = try Hasher.init(allocator, sign_hash_base_ind, rand.int(u64));
+            self.sign_hash_base = try HashFn.init(allocator, sign_hash_base_ind, rand.int(u64));
             errdefer self.sign_hash_base.deinit();
 
             return self;
@@ -107,14 +107,14 @@ pub fn CountSketchBase(comptime KeyType: type, comptime CounterType: type, compt
 /// Estimates item frequencies for specified KeyType and CounterType.
 ///
 /// Parameters:
-/// - KeyType: The type of the keys (must be an unsigned integer).
+/// - KeyType: The type of the keys (must be an unsigned integer with width less than 32).
 /// - CounterType: The type for the counters (e.g., i32, i64). Must be signed.
 /// - d (depth): Number of hash functions/rows.
 /// - w (width): Number of counters per hash function/column.
 pub fn CountSketch(comptime KeyType: type, comptime CounterType: type) type {
     // --- Compile-time checks ---
-    if (@typeInfo(KeyType).int.signedness != .unsigned) {
-        @compileError("Unsupported KeyType for CountSketch. KeyType must be an unsigned integer.");
+    if (@typeInfo(KeyType).int.signedness != .unsigned or @typeInfo(KeyType).int.bits > 32) {
+        @compileError("Unsupported KeyType for KWiseHash. KeyType must be u32 or less.");
     }
     if (@typeInfo(CounterType).int.signedness != .signed) {
         @compileError("CounterType must be signed (e.g., i32, i64)");
@@ -220,16 +220,16 @@ pub fn CountSketch(comptime KeyType: type, comptime CounterType: type) type {
 }
 
 /// L2Estimator to estimate the l2 norm squared of a frequency vector undergoing
-/// dynamic updates. Returns a (1 + eps)-approximation of the l2 norm squared with
+/// dynamic updates. Returns a (1 +- eps)-approximation of the l2 norm squared with
 /// constant probability (at least 3/4)
 ///
 /// Parameters:
-/// - KeyType: The type of the keys (must be an unsigned integer).
+/// - KeyType: The type of the keys (must be an unsigned integer with width less than 32).
 /// - CounterType: The type for the counters (e.g., i32, i64). Must be signed.
 pub fn L2Estimator(comptime KeyType: type, comptime CounterType: type) type {
     // --- Compile-time checks ---
-    if (@typeInfo(KeyType).int.signedness != .unsigned) {
-        @compileError("Unsupported KeyType for L. KeyType must be an unsigned integer.");
+    if (@typeInfo(KeyType).int.signedness != .unsigned or @typeInfo(KeyType).int.bits > 32) {
+        @compileError("Unsupported KeyType for KWiseHash. KeyType must be u32 or less.");
     }
     if (@typeInfo(CounterType).int.signedness != .signed) {
         @compileError("CounterType must be signed (e.g., i32, i64)");
@@ -243,15 +243,15 @@ pub fn L2Estimator(comptime KeyType: type, comptime CounterType: type) type {
         eps: f64,
         sketch: CSBase,
 
-        /// Initializes the L2Estimator with specified depth (d) and width (w).
+        /// Initializes the L2Estimator with specified error parameter (eps).
         ///
         /// Parameters:
         /// - allocator: The allocator to use for memory allocation.
         /// - eps: The error parameter (must be in range (0, 1)).
         /// - seed: The seed for the random number generator.
         pub fn init(allocator: Allocator, eps: f64, seed: u64) !Self {
-            if (eps <= 0 or eps >= 1) {
-                const fmt = "L eps (w) must be in range (0, 1)";
+            if (eps <= 0) {
+                const fmt = "L2Estimator eps must be greater than 0";
                 if (!builtin.is_test) {
                     std.log.err(fmt, .{});
                 } else {
@@ -303,7 +303,7 @@ pub fn L2Estimator(comptime KeyType: type, comptime CounterType: type) type {
 
 test "CountSketch (uint) type check" {
     _ = CountSketch(u8, i32);
-    _ = CountSketch(u64, i64);
+    _ = CountSketch(u32, i64);
 
     // These should fail compilation if uncommented:
     // _ = CountSketch(i32, i64); // Signed key
@@ -314,7 +314,20 @@ test "CountSketch (uint) type check" {
     try std.testing.expect(true); // Passes if it compiles
 }
 
-test "CountSketch (uint) basic estimates" {
+test "L2Estimator (uint) type check" {
+    _ = L2Estimator(u32, i64);
+    _ = L2Estimator(u8, i32);
+
+    // These should fail compilation if uncommented:
+    // _ = L2Estimator(i32, i64); // Signed key
+    // _ = CountSL2Estimatorketch(f32, i64); // Float key
+    // _ = L2Estimator([]const u8, i64); // Slice key
+    // _ = L2Estimator(u64, u64); // Unsigned counter with width > 32
+
+    try std.testing.expect(true); // Passes if it compiles
+}
+
+test "CountSketch (uint) basic usage" {
     const CS = CountSketch(u32, i64);
     const allocator = std.testing.allocator;
 
@@ -334,6 +347,14 @@ test "CountSketch (uint) basic estimates" {
     std.debug.print(" - Item {d}: {} (Actual -30)\n", .{ item2, estimate2 });
 
     try std.testing.expect(true); // Passes if it compiles
+}
+
+test "CountSketch (uint) width fail" {
+    const allocator = std.testing.allocator;
+    const CS = CountSketch(u32, i64);
+
+    try std.testing.expectError(error.InvalidArgument, CS.init(allocator, 5, 0, std.testing.random_seed));
+    try std.testing.expectError(error.InvalidArgument, CS.init(allocator, 0, 5, std.testing.random_seed));
 }
 
 test "L2Estimator (uint) basic usage" {
@@ -361,4 +382,11 @@ test "L2Estimator (uint) basic usage" {
     std.debug.print(" - l2 norm squared estimate: {} (Actual {})\n", .{ estimate, actual });
 
     try std.testing.expect(true); // Passes if it compiles
+}
+
+test "L2Estimator (uint) eps fail" {
+    const allocator = std.testing.allocator;
+    const EstimatorU32 = L2Estimator(u32, i64);
+
+    try std.testing.expectError(error.InvalidArgument, EstimatorU32.init(allocator, 0, std.testing.random_seed));
 }

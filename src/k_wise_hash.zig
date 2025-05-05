@@ -10,8 +10,8 @@ const builtin = @import("builtin");
 /// - KeyType: The type of the keys (must be an unsigned integer type).
 pub fn KWiseHash(comptime KeyType: type) type {
     // --- Compile-time checks ---
-    if (@typeInfo(KeyType).int.signedness != .unsigned) {
-        @compileError("Unsupported KeyType for KWiseHash. KeyType must be an unsigned integer.");
+    if (@typeInfo(KeyType).int.signedness != .unsigned or @typeInfo(KeyType).int.bits > 32) {
+        @compileError("Unsupported KeyType for KWiseHash. KeyType must be u32 or less.");
     }
 
     return struct {
@@ -45,9 +45,10 @@ pub fn KWiseHash(comptime KeyType: type) type {
 
             var prng = std.Random.DefaultPrng.init(seed);
             const rand = prng.random();
-            // Generate k random integers in the range [1, MP)
+            // Generate k random integers in the range [0, MP)
             for (self.coefficients) |*coeff| {
-                coeff.* = rand.intRangeAtMost(u64, 0, mp_61);
+                //coeff.* = rand.intRangeAtMost(u64, 0, mp_61);
+                coeff.* = rand.uintLessThan(u64, mp_61);
             }
 
             return self;
@@ -60,18 +61,20 @@ pub fn KWiseHash(comptime KeyType: type) type {
         }
 
         /// Converts the unsigned integer key (KeyType) into a u64 value.
-        inline fn keyToU64(self: *Self, item: KeyType) u64 {
+        inline fn keyToU32(self: *Self, item: KeyType) u32 {
             _ = self; // Avoid unused parameter warning
             // Safely cast any unsigned integer type to u64
             return @intCast(item);
         }
 
         /// Fast moudulo operations for 2^61 - 1
+        /// The input is a 128-bit number represented as
+        /// its most significant 64 bits (hi) and least significant 64 bits (lo).
         fn mod61(self: *Self, hi: u64, lo: u64) u64 {
             _ = self; // Avoid unused parameter warning
-            const lo61: u64 = lo & mp_61;
-            const hi_part: u64 = (lo >> 61) + (hi << 3) + (hi >> 58);
-            const sum: u64 = lo61 + hi_part;
+            const lo61: u64 = lo & mp_61; // Get least significant 61 bits
+            const hi61: u64 = (lo >> 61) + (hi << 3) + (hi >> 58); // Get most significant 61 bits
+            const sum: u64 = lo61 + hi61;
 
             return if (sum >= mp_61) sum - mp_61 else sum;
         }
@@ -89,13 +92,13 @@ pub fn KWiseHash(comptime KeyType: type) type {
         /// Computes the hash value for the given item.
         /// Returns the full 64-bit hash result.
         pub fn hash(self: *Self, item: KeyType) u64 {
-            var res: u64 = 0;
+            var res: u64 = self.coefficients[self.coefficients.len - 1];
             // Horners method for polynomial evaluation
-            var i: usize = self.coefficients.len;
+            var i: usize = self.coefficients.len - 1;
             while (i > 0) {
                 i -= 1;
                 const coeff: u64 = self.coefficients[i];
-                const key: u64 = self.keyToU64(item);
+                const key: u32 = self.keyToU32(item);
 
                 res = self.mul61(res, key) + coeff;
                 res = if (res >= mp_61) res - mp_61 else res;
@@ -107,13 +110,18 @@ pub fn KWiseHash(comptime KeyType: type) type {
 
 // // ----------- TESTS for KIndependentHasher (Unsigned Ints Only) -----------
 
+test "LeftShift" {
+    const a: u64 = (1 << 13);
+    try std.testing.expectEqual(8192, a);
+}
+
 test "KWiseHash (uint) init/deinit" {
     const allocator: Allocator = std.testing.allocator;
-    const HasherU64 = KWiseHash(u64);
+    const HasherU24 = KWiseHash(u24);
     const HasherU32 = KWiseHash(u32);
     const seed: u64 = std.testing.random_seed;
 
-    var hasher1 = try HasherU64.init(allocator, 5, seed);
+    var hasher1 = try HasherU24.init(allocator, 5, seed);
     defer hasher1.deinit();
     try std.testing.expectEqual(@as(usize, 5), hasher1.k);
     try std.testing.expectEqual(@as(usize, 5), hasher1.coefficients.len);
@@ -123,20 +131,39 @@ test "KWiseHash (uint) init/deinit" {
     try std.testing.expectEqual(@as(usize, 10), hasher2.k);
     try std.testing.expectEqual(@as(usize, 10), hasher2.coefficients.len);
 
-    try std.testing.expectError(error.InvalidArgument, HasherU64.init(allocator, 0, 0));
+    try std.testing.expectError(error.InvalidArgument, HasherU24.init(allocator, 0, 0));
+}
+
+test "KWiseHash (uint) mod61" {
+    // const a: u64 = (1 << 63);
+    // const b: u64 = (1 << 10) + 20;
+
+    const HasherU64 = KWiseHash(u32);
+    const seed: u64 = std.testing.random_seed;
+    const alloc = std.testing.allocator;
+    var hasher = try HasherU64.init(alloc, 5, seed);
+    defer hasher.deinit();
+
+    try std.testing.expectEqual(512, hasher.mod61(0, 512));
+    try std.testing.expectEqual((1 << 31), hasher.mod61(0, 1 << 31));
+    try std.testing.expectEqual(8, hasher.mod61(1, 0));
 }
 
 test "KWiseHash (uint) mul61" {
     const a: u64 = (1 << 63);
     const b: u64 = (1 << 10) + 20;
 
-    const HasherU64 = KWiseHash(u64);
+    const HasherU64 = KWiseHash(u32);
     const seed: u64 = std.testing.random_seed;
-    var hasher = try HasherU64.init(std.testing.allocator, 5, seed);
+    const alloc = std.testing.allocator;
+    var hasher = try HasherU64.init(alloc, 5, seed);
     defer hasher.deinit();
 
-    try std.testing.expectEqual(a + b, 9223372036854776852);
-    try std.testing.expectEqual(hasher.mul61(a, b), 4176);
-    try std.testing.expectEqual(hasher.mul61(b, a), 4176);
-    try std.testing.expectEqual(hasher.mul61(20, 10), 200);
+    try std.testing.expectEqual(
+        9223372036854776852,
+        a + b,
+    );
+    try std.testing.expectEqual(4176, hasher.mul61(a, b));
+    try std.testing.expectEqual(4176, hasher.mul61(b, a));
+    try std.testing.expectEqual(200, hasher.mul61(20, 10));
 }
