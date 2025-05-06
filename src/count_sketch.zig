@@ -13,7 +13,7 @@ const KWiseHash = @import("k_wise_hash.zig").KWiseHash;
 pub fn CountSketchBase(comptime KeyType: type, comptime CounterType: type, comptime sign_hash_base_ind: comptime_int) type {
     // --- Compile-time checks ---
     if (@typeInfo(KeyType).int.signedness != .unsigned or @typeInfo(KeyType).int.bits > 32) {
-        @compileError("Unsupported KeyType for KWiseHash. KeyType must be u32 or less.");
+        @compileError("Unsupported KeyType for CountSketchBasse. KeyType must be u32 or less.");
     }
     if (@typeInfo(CounterType).int.signedness != .signed) {
         @compileError("CounterType must be signed (e.g., i32, i64)");
@@ -114,7 +114,7 @@ pub fn CountSketchBase(comptime KeyType: type, comptime CounterType: type, compt
 pub fn CountSketch(comptime KeyType: type, comptime CounterType: type) type {
     // --- Compile-time checks ---
     if (@typeInfo(KeyType).int.signedness != .unsigned or @typeInfo(KeyType).int.bits > 32) {
-        @compileError("Unsupported KeyType for KWiseHash. KeyType must be u32 or less.");
+        @compileError("Unsupported KeyType for CountSketch. KeyType must be u32 or less.");
     }
     if (@typeInfo(CounterType).int.signedness != .signed) {
         @compileError("CounterType must be signed (e.g., i32, i64)");
@@ -128,6 +128,40 @@ pub fn CountSketch(comptime KeyType: type, comptime CounterType: type) type {
         d: usize,
         table: []CSBase,
         allocator: Allocator,
+
+        /// Initializes the CountSketch with specified epsilon and delta
+        /// params. Sets width to ceil(4 eps^{-2}) and depth to ceil(8*ln(1/delta)).
+        /// Gurantees that with probablitily at least 1 - delta,
+        /// an estimate \hat{x}_i satisfies |\hat{x}_i - x_i| <= eps ||x||_2
+        ///
+        /// Parameters:
+        /// - allocator: The allocator to use for memory allocation.
+        /// - eps: The error tolerance for the CountSketch.
+        /// - delta: The probability of failure.
+        /// - seed: The seed for the random number generator.
+        pub fn initWithParams(allocator: Allocator, eps: f64, delta: f64, seed: u64) !Self {
+            if (eps <= 0) {
+                const fmt = "CountSketch eps must be greater than 0";
+                if (!builtin.is_test) {
+                    std.log.err(fmt, .{});
+                } else {
+                    std.log.warn(fmt, .{});
+                }
+                return error.InvalidArgument;
+            }
+            if (delta <= 0 or delta >= 1) {
+                const fmt = "CountSketch delta must be in (0, 1)";
+                if (!builtin.is_test) {
+                    std.log.err(fmt, .{});
+                } else {
+                    std.log.warn(fmt, .{});
+                }
+                return error.InvalidArgument;
+            }
+            const w: usize = @intFromFloat(@ceil(4 / (eps * eps)));
+            const d: usize = @intFromFloat(@ceil(std.math.log2(1.0 / delta)));
+            return try Self.init(allocator, d, w, seed);
+        }
 
         /// Initializes the CountSketch with specified depth (d) and width (w).
         ///
@@ -200,7 +234,7 @@ pub fn CountSketch(comptime KeyType: type, comptime CounterType: type) type {
         ///
         /// Parameters:
         /// - key: The item to estimate.
-        pub fn estimate(self: *Self, key: KeyType) !CounterType {
+        pub fn query(self: *Self, key: KeyType) !CounterType {
             const estimates = try self.allocator.alloc(CounterType, self.d);
             @memset(estimates, 0);
             defer self.allocator.free(estimates);
@@ -229,7 +263,7 @@ pub fn CountSketch(comptime KeyType: type, comptime CounterType: type) type {
 pub fn L2Estimator(comptime KeyType: type, comptime CounterType: type) type {
     // --- Compile-time checks ---
     if (@typeInfo(KeyType).int.signedness != .unsigned or @typeInfo(KeyType).int.bits > 32) {
-        @compileError("Unsupported KeyType for KWiseHash. KeyType must be u32 or less.");
+        @compileError("Unsupported KeyType for L2Estimator. KeyType must be u32 or less.");
     }
     if (@typeInfo(CounterType).int.signedness != .signed) {
         @compileError("CounterType must be signed (e.g., i32, i64)");
@@ -340,13 +374,45 @@ test "CountSketch (uint) basic usage" {
     sketch.update(item1, 20);
     sketch.update(item2, -30);
 
-    const estimate1 = try sketch.estimate(item1);
-    const estimate2 = try sketch.estimate(item2);
+    const estimate1 = try sketch.query(item1);
+    const estimate2 = try sketch.query(item2);
     std.debug.print("\n-- CountSketch (u32 keys) --\n", .{});
     std.debug.print(" - Item {d}: {} (Actual 20)\n", .{ item1, estimate1 });
     std.debug.print(" - Item {d}: {} (Actual -30)\n", .{ item2, estimate2 });
 
     try std.testing.expect(true); // Passes if it compiles
+}
+
+test "CountSketch (uint) basic usage with params" {
+    const CS = CountSketch(u32, i64);
+    const allocator = std.testing.allocator;
+
+    const eps: f64 = 0.125;
+    const delta: f64 = 0.1;
+    var sketch = try CS.initWithParams(allocator, eps, delta, std.testing.random_seed);
+    defer sketch.deinit();
+
+    const item1: u32 = 10001;
+    const item2: u32 = 20002;
+
+    sketch.update(item1, 20);
+    sketch.update(item2, -30);
+
+    const estimate1 = try sketch.query(item1);
+    const estimate2 = try sketch.query(item2);
+    std.debug.print("\n-- CountSketch (u32 keys) --\n", .{});
+    std.debug.print(" - Item {d}: {} (Actual 20)\n", .{ item1, estimate1 });
+    std.debug.print(" - Item {d}: {} (Actual -30)\n", .{ item2, estimate2 });
+
+    try std.testing.expect(true); // Passes if it compiles
+}
+
+test "CountSketch (uint) params fail" {
+    const allocator = std.testing.allocator;
+    const CS = CountSketch(u32, i64);
+
+    try std.testing.expectError(error.InvalidArgument, CS.initWithParams(allocator, 0, 0.1, std.testing.random_seed));
+    try std.testing.expectError(error.InvalidArgument, CS.initWithParams(allocator, 0.125, 2, std.testing.random_seed));
 }
 
 test "CountSketch (uint) width fail" {
