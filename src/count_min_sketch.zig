@@ -135,6 +135,24 @@ pub fn CountMinSketch(comptime KeyType: type, comptime CounterType: type) type {
         /// - delta: The probability of failure.
         /// - seed: The seed for the random number generator.
         pub fn initWithParams(allocator: Allocator, eps: f64, delta: f64, seed: u64) !Self {
+            if (eps <= 0) {
+                const fmt = "CountMinSketch epsilon (eps) must be greater than 0";
+                if (!builtin.is_test) {
+                    std.log.err(fmt, .{});
+                } else {
+                    std.log.warn(fmt, .{});
+                }
+                return error.InvalidArgument;
+            }
+            if (delta <= 0 or delta >= 1) {
+                const fmt = "CountMinSketch delta (delta) must be in the range (0, 1)";
+                if (!builtin.is_test) {
+                    std.log.err(fmt, .{});
+                } else {
+                    std.log.warn(fmt, .{});
+                }
+                return error.InvalidArgument;
+            }
             const w: usize = @intFromFloat(@ceil(std.math.e / eps));
             const d: usize = @intFromFloat(@ceil(std.math.log(f64, std.math.e, 1.0 / delta)));
             return try Self.init(allocator, d, w, seed);
@@ -270,4 +288,12 @@ test "CountMinSketch (uint) basic usage with params" {
     std.debug.print(" - Item {d}: {} (Actual 20)\n", .{ item2, estimate2 });
 
     try std.testing.expect(true); // Passes if it compiles
+}
+
+test "CountMinSketch (uint) params fail" {
+    const allocator = std.testing.allocator;
+    const CMS = CountMinSketch(u32, i64);
+
+    try std.testing.expectError(error.InvalidArgument, CMS.initWithParams(allocator, 0, 0.1, std.testing.random_seed));
+    try std.testing.expectError(error.InvalidArgument, CMS.initWithParams(allocator, 0.125, 2, std.testing.random_seed));
 }
