@@ -38,14 +38,13 @@ pub fn main() !void {
     const l2_estimate = l2_estimator.estimate();
     std.debug.print("L2 squared estimate: {} (Actual: {})\n", .{ l2_estimate, actual_l2 });
     const approx_factor: f64 = @as(f64, @floatFromInt(l2_estimate)) / @as(f64, @floatFromInt(actual_l2));
-    //l2_rel_error = @abs(l2_rel_error - @as(f64, actual_l2)) / @as(f64, actual_l2);
     std.debug.print("Approximation Factor: {e}\n", .{approx_factor});
 
     // Retrieve the estimated count for the key
     var avg_err: f64 = 0.0;
     var max_err: u64 = 0.0;
     for (list.items, 0..) |freq, i| {
-        const estimate = try sketch.estimate(@as(u32, @intCast(i)));
+        const estimate = try sketch.query(@as(u32, @intCast(i)));
         //std.debug.print("Estimated count for key {}: {} (Actual: {})\n", .{ i, estimate, freq });
         const err = @abs(estimate - freq);
         avg_err += @floatFromInt(err);
